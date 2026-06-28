@@ -87,6 +87,20 @@ def assign_spend_tier(df, col_name='Marketing_Spend'):
     df_out['Spend_Tier'] = df_out[col_name].apply(get_tier)
     return df_out, q33, q66
 
+def calculate_yoy_growth(df, metric_col):
+    if df.empty or 'Year' not in df.columns:
+        return 0.0
+    years = sorted(df['Year'].unique())
+    if len(years) < 2:
+        return 0.0
+    latest_year = years[-1]
+    prev_year = years[-2]
+    current = df[df['Year'] == latest_year][metric_col].sum()
+    previous = df[df['Year'] == prev_year][metric_col].sum()
+    if previous == 0:
+        return 0.0
+    return (current - previous) / previous * 100
+
 # ==========================================
 # 4. NAVBAR & THEME SETTINGS
 # ==========================================
@@ -98,6 +112,9 @@ st.markdown("""
     header[data-testid="stHeader"] { display: none !important; }
     </style>
 """, unsafe_allow_html=True)
+
+if 'spk_weights' not in st.session_state:
+    st.session_state['spk_weights'] = np.array([0.45, 0.25, 0.15, 0.15])
 
 # Fake Floating Navbar
 nav_col, empty_col, theme_col = st.columns([6, 1, 3])
@@ -228,9 +245,25 @@ if nav_selection == "Dashboard":
         with w_cols[2]: w_mkt = st.slider("Mkt Spend (-)", 0.0, 1.0, 0.15, 0.05)
         with w_cols[3]: w_spc = st.slider("Sales/Cust (+)", 0.0, 1.0, 0.15, 0.05)
         st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown(f"""
+        <div style='background-color: {card_color}; padding: 12px 20px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px; font-size: 13px;'>
+        <b style='color: {text_color};'>Justifikasi Bobot Kriteria SPK:</b>
+        <table style='width: 100%; margin-top: 8px; color: {muted_color};'>
+        <tr><th style='text-align:left; padding: 4px 8px;'>Kriteria</th><th style='text-align:center;'>Tipe</th><th style='text-align:left;'>Justifikasi</th></tr>
+        <tr><td style='padding: 4px 8px;'>Sales</td><td style='text-align:center;'>Benefit (+)</td><td>Indikator utama kinerja finansial cabang</td></tr>
+        <tr><td style='padding: 4px 8px;'>Customers</td><td style='text-align:center;'>Benefit (+)</td><td>Volume penetrasi pasar dan skala operasi</td></tr>
+        <tr><td style='padding: 4px 8px;'>Marketing Spend</td><td style='text-align:center;'>Cost (−)</td><td>Diminimalkan — efisiensi biaya operasional</td></tr>
+        <tr><td style='padding: 4px 8px;'>Sales/Customer</td><td style='text-align:center;'>Benefit (+)</td><td>Kualitas rata-rata transaksi per pelanggan</td></tr>
+        </table>
+        <p style='margin-top: 8px; color: {muted_color};'>Bobot default berdasarkan prioritas bisnis KFC: revenue adalah KPI utama (45%), diikuti penetrasi pasar (25%), kualitas transaksi (15%), dan efisiensi biaya (15%).</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     total_w = w_sales + w_cust + w_mkt + w_spc
     spk_weights = np.array([w_sales/total_w, w_cust/total_w, w_mkt/total_w, w_spc/total_w]) if total_w > 0 else np.array([0.25, 0.25, 0.25, 0.25])
+    st.session_state['spk_weights'] = spk_weights
+
     spk_results = calculate_spk(df_filtered, spk_weights)
     
     with hero_col2:
@@ -253,9 +286,13 @@ if nav_selection == "Dashboard":
     else:
         avg_roi_kpi = total_sales_kpi = total_branches_kpi = 0; best_branch_kpi = "N/A"
 
-    def make_tailadmin_card(title, value, icon, percentage, trend="up", sparkline_color="#10B981"):
+    yoy_sales = calculate_yoy_growth(df_filtered, 'Sales')
+    yoy_customers = calculate_yoy_growth(df_filtered, 'Customers')
+    yoy_marketing = calculate_yoy_growth(df_filtered, 'Marketing_Spend')
+
+    def make_tailadmin_card(title, value, icon, percentage, trend="up", sparkline_color="#10B981", subtitle="vs last year"):
         trend_color = "#10B981" if trend == "up" else "#EF4444"
-        arrow = "↑" if trend == "up" else "↓"
+        arrow = "↑" if trend == "up" else "↓" if trend == "down" else ""
         return f"""
         <div class='metric-card'>
             <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;'>
@@ -263,7 +300,7 @@ if nav_selection == "Dashboard":
                     <div class='metric-label' style='margin-bottom: 4px;'>{title}</div>
                     <div style='font-size: 13px; color: {muted_color}; display: flex; align-items: center; gap: 4px; font-weight: 500;'>
                         <span style='color: {trend_color}; font-weight: 600;'>{arrow} {percentage}</span> 
-                        <span>vs last month</span>
+                        <span>{subtitle}</span>
                     </div>
                 </div>
                 <div style='width: 44px; height: 44px; border-radius: 50%; background-color: {bg_color}; display: flex; align-items: center; justify-content: center; font-size: 20px; color: {accent_color};'>
@@ -280,10 +317,10 @@ if nav_selection == "Dashboard":
         """
 
     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-    with kpi1: st.markdown(make_tailadmin_card("Total Sales", f"${total_sales_kpi/1e6:.2f}M", "$", "18.2%", "up", "#10B981"), unsafe_allow_html=True)
-    with kpi2: st.markdown(make_tailadmin_card("Total Branches", f"{total_branches_kpi}", "🏢", "4.1%", "up", "#3C50E0"), unsafe_allow_html=True)
-    with kpi3: st.markdown(make_tailadmin_card("Average ROI", f"{avg_roi_kpi:.1f}%", "📈", "2.4%", "up", "#10B981"), unsafe_allow_html=True)
-    with kpi4: st.markdown(make_tailadmin_card("Best Branch (TOPSIS)", f"{best_branch_kpi}", "🏆", "1.2%", "down", "#EF4444"), unsafe_allow_html=True)
+    with kpi1: st.markdown(make_tailadmin_card("Total Sales", f"${total_sales_kpi/1e6:.2f}M", "$", f"{abs(yoy_sales):.1f}%", "up" if yoy_sales >= 0 else "down", "#10B981"), unsafe_allow_html=True)
+    with kpi2: st.markdown(make_tailadmin_card("Total Branches", f"{total_branches_kpi}", "🏢", f"{abs(yoy_customers):.1f}%", "up" if yoy_customers >= 0 else "down", "#3C50E0", subtitle="vs last yr (Cust)"), unsafe_allow_html=True)
+    with kpi3: st.markdown(make_tailadmin_card("Average ROI", f"{avg_roi_kpi:.1f}%", "📈", f"{abs(yoy_sales):.1f}%", "up" if yoy_sales >= 0 else "down", "#10B981"), unsafe_allow_html=True)
+    with kpi4: st.markdown(make_tailadmin_card("Best Branch (TOPSIS)", f"{best_branch_kpi}", "🏆", f"Rank #1 dari {total_branches_kpi}", "none", "#EF4444", subtitle="by TOPSIS Score"), unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     with col1:
@@ -344,7 +381,7 @@ if nav_selection == "Dashboard":
 # ==========================================
 elif nav_selection == "Business Insight":
     st.markdown("<h2 style='margin-bottom: 20px;'>Executive Business Insights</h2>", unsafe_allow_html=True)
-    spk_weights = np.array([0.25, 0.25, 0.25, 0.25])
+    spk_weights = st.session_state.get('spk_weights', np.array([0.45, 0.25, 0.15, 0.15]))
     spk_results = calculate_spk(df_filtered, spk_weights)
     
     if not df_filtered.empty:
@@ -360,14 +397,71 @@ elif nav_selection == "Business Insight":
         topsis_rank_for_roi = spk_results[spk_results['Branch_ID'] == top_roi_branch]['TOPSIS_Rank'].values if not spk_results.empty else []
         topsis_rank_str = f"#{int(topsis_rank_for_roi[0])}" if len(topsis_rank_for_roi) > 0 else "N/A"
         
+        st.markdown(f"""
+        <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>
+            <h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>BQ #1 - Rekomendasi Investasi dengan ROI Tertinggi</h4>
+            <p>Cabang <b>{top_roi_branch}</b> memberikan return tertinggi sebesar <b>{top_roi_value:,.1f}%</b> dengan efisiensi biaya <b>{top_roi_eff:.2f}x</b> per dollar marketing. SPK TOPSIS menempatkan cabang ini di posisi <b>{topsis_rank_str}</b> dari total {len(spk_results)} cabang.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        roi_chart_df = branch_perf.sort_values('ROI_pct', ascending=True)
+        bar_colors_roi = ['#EF4444' if v < 0 else '#10B981' for v in roi_chart_df['ROI_pct']]
+        fig_roi = go.Figure(go.Bar(
+            x=roi_chart_df['ROI_pct'],
+            y=roi_chart_df['Branch_ID'],
+            orientation='h',
+            marker_color=bar_colors_roi,
+            text=roi_chart_df['ROI_pct'].apply(lambda x: f"{x:,.1f}%"),
+            textposition='outside'
+        ))
+        fig_roi.update_layout(title="ROI per Branch — Rekomendasi Investasi (BQ #1)", xaxis_title="ROI (%)", yaxis_title="Branch")
+        fig_roi = apply_theme_to_fig(fig_roi)
+        st.plotly_chart(fig_roi, use_container_width=True)
+
         avg_s = spk_results['Sales'].mean()
         avg_m = spk_results['Marketing_Spend'].mean()
         star_branches = spk_results[(spk_results['Sales'] > avg_s) & (spk_results['Marketing_Spend'] < avg_m)]['Branch_ID'].tolist() if not spk_results.empty else []
         role_model_str = ', '.join(star_branches) if star_branches else 'N/A'
         
+        st.markdown(f"""
+        <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>
+            <h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>BQ #2 - Role Model Efisiensi Operasional</h4>
+            <p>Cabang <b>Star</b> (Sales di atas rata-rata, Marketing di bawah rata-rata) adalah: <b>{role_model_str}</b>. Cabang ini menjadi teladan efisiensi operasional.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
         total_sales_bq3 = df_filtered.groupby('Branch_ID')['Sales'].sum().reset_index().sort_values('Sales', ascending=False)
         top_5_sales = total_sales_bq3.head(5)['Branch_ID'].tolist()
         bottom_5_sales = total_sales_bq3.tail(5)['Branch_ID'].tolist()
+
+        st.markdown(f"""
+        <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>
+            <h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>BQ #3 - Top 5 & Bottom 5 by Total Sales</h4>
+            <p><b>Top 5 Performer</b>: {', '.join(top_5_sales)}. <br><b>Bottom 5 Evaluasi</b>: {', '.join(bottom_5_sales)}.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        total_sales_vis = df_filtered.groupby('Branch_ID')['Sales'].sum().reset_index().sort_values('Sales', ascending=False).reset_index(drop=True)
+        n_branches = len(total_sales_vis)
+        bar_colors_tb = []
+        for i in range(n_branches):
+            if i < 5:
+                bar_colors_tb.append('#10B981')
+            elif i >= n_branches - 5:
+                bar_colors_tb.append('#EF4444')
+            else:
+                bar_colors_tb.append('#94A3B8')
+                
+        fig_tb = go.Figure(go.Bar(
+            x=total_sales_vis['Branch_ID'],
+            y=total_sales_vis['Sales'],
+            marker_color=bar_colors_tb,
+            text=total_sales_vis['Sales'].apply(lambda x: f"${x/1e6:.1f}M"),
+            textposition='outside'
+        ))
+        fig_tb.update_layout(title="Total Accumulated Sales — Top 5 (hijau) vs Bottom 5 (merah) (BQ #3)", xaxis_title="Branch ID", yaxis_title="Total Sales ($)")
+        fig_tb = apply_theme_to_fig(fig_tb)
+        st.plotly_chart(fig_tb, use_container_width=True)
         
         df_bq = df_filtered_tier.copy()
         df_bq['Spend_Per_Customer'] = np.where(df_bq['Customers'] > 0, df_bq['Marketing_Spend'] / df_bq['Customers'], 0)
@@ -376,6 +470,14 @@ elif nav_selection == "Business Insight":
         premium_sales = df_bq[df_bq['Spend_Tier'] == 'Premium']['Sales'].mean()
         budget_sales = df_bq[df_bq['Spend_Tier'] == 'Budget']['Sales'].mean()
         
+        st.markdown(f"""
+        <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>
+            <h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>BQ #4 - Efisiensi Biaya per Pelanggan (Premium vs Budget Tier)</h4>
+            <p>Tier <b>Premium</b> menghabiskan <b>${premium_spc:,.2f}/pelanggan</b> menghasilkan rata-rata penjualan <b>${premium_sales:,.0f}</b>.<br> 
+            Tier <b>Budget</b> menghabiskan <b>${budget_spc:,.2f}/pelanggan</b> menghasilkan rata-rata penjualan <b>${budget_sales:,.0f}</b>.</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
         high_mkt = df_filtered[df_filtered['Marketing_Spend'] > q66_val]['Sales'].mean()
         low_mkt = df_filtered[df_filtered['Marketing_Spend'] <= q33_val]['Sales'].mean()
         diff_mkt = high_mkt - low_mkt
@@ -383,31 +485,26 @@ elif nav_selection == "Business Insight":
         
         st.markdown(f"""
         <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>
-            <h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>BQ #1 - Rekomendasi Investasi dengan ROI Tertinggi</h4>
-            <p>Cabang <b>{top_roi_branch}</b> memberikan return tertinggi sebesar <b>{top_roi_value:,.1f}%</b> dengan efisiensi biaya <b>{top_roi_eff:.2f}x</b> per dollar marketing. SPK TOPSIS menempatkan cabang ini di posisi <b>{topsis_rank_str}</b> dari total {len(spk_results)} cabang.</p>
-        </div>
-        
-        <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>
-            <h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>BQ #2 - Role Model Efisiensi Operasional</h4>
-            <p>Cabang <b>Star</b> (Sales di atas rata-rata, Marketing di bawah rata-rata) adalah: <b>{role_model_str}</b>. Cabang ini menjadi teladan efisiensi operasional.</p>
-        </div>
-        
-        <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>
-            <h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>BQ #3 - Top 5 & Bottom 5 by Total Sales</h4>
-            <p><b>Top 5 Performer</b>: {', '.join(top_5_sales)}. <br><b>Bottom 5 Evaluasi</b>: {', '.join(bottom_5_sales)}.</p>
-        </div>
-        
-        <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>
-            <h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>BQ #4 - Efisiensi Biaya per Pelanggan (Premium vs Budget Tier)</h4>
-            <p>Tier <b>Premium</b> menghabiskan <b>${premium_spc:,.2f}/pelanggan</b> menghasilkan rata-rata penjualan <b>${premium_sales:,.0f}</b>.<br> 
-            Tier <b>Budget</b> menghabiskan <b>${budget_spc:,.2f}/pelanggan</b> menghasilkan rata-rata penjualan <b>${budget_sales:,.0f}</b>.</p>
-        </div>
-        
-        <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>
             <h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>BQ #5 - Efektivitas Investasi Marketing</h4>
             <p>Selisih <b>${diff_mkt:,.2f} ({diff_pct_mkt:.1f}%)</b> antara tier Premium vs Budget membuktikan peningkatan marketing berdampak positif pada penjualan agregat.</p>
         </div>
         """, unsafe_allow_html=True)
+
+        st.markdown(f"<div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow}; margin-bottom: 20px;'>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='margin-top: 0; color: {accent_color}; font-weight: 700;'>SPK Decision Summary — TOPSIS vs MOORA Consensus</h4>", unsafe_allow_html=True)
+        st.markdown("<p>Tabel berikut menggabungkan ranking dari dua metode MCDM. Konsensus Rank adalah rata-rata TOPSIS Rank dan MOORA Rank. Semakin kecil angkanya, semakin direkomendasikan sebagai cabang investasi terbaik.</p>", unsafe_allow_html=True)
+        if not spk_results.empty:
+            spk_summary = spk_results[['Branch_ID', 'TOPSIS_Score', 'TOPSIS_Rank', 'MOORA_Score', 'MOORA_Rank']].copy()
+            spk_summary['Konsensus_Rank'] = (spk_summary['TOPSIS_Rank'] + spk_summary['MOORA_Rank']) / 2
+            spk_summary = spk_summary.sort_values('Konsensus_Rank').reset_index(drop=True)
+            st.dataframe(
+                spk_summary.style
+                .format({'TOPSIS_Score': '{:.4f}', 'MOORA_Score': '{:.4f}', 'TOPSIS_Rank': '{:.0f}', 'MOORA_Rank': '{:.0f}', 'Konsensus_Rank': '{:.1f}'})
+                .background_gradient(subset=['Konsensus_Rank'], cmap='RdYlGn_r'),
+                use_container_width=True
+            )
+        st.markdown("</div>", unsafe_allow_html=True)
+
     else:
         st.warning("No data available.")
 
@@ -420,11 +517,11 @@ elif nav_selection == "CRM Analysis":
         crm_df = df_filtered.groupby('Branch_ID').agg(Avg_Monthly_Customers=('Customers', 'mean'), Total_Customers=('Customers', 'sum'), Total_Marketing=('Marketing_Spend', 'sum'), Total_Sales=('Sales', 'sum')).reset_index()
         crm_df['CAC'] = crm_df['Total_Marketing'] / crm_df['Total_Customers']
         crm_df['Revenue_Per_Customer'] = crm_df['Total_Sales'] / crm_df['Total_Customers']
-        crm_df['LTV_CAC_Ratio'] = crm_df['Revenue_Per_Customer'] / crm_df['CAC']
+        crm_df['Rev_CAC_Ratio'] = crm_df['Revenue_Per_Customer'] / crm_df['CAC']
         
         col_crm1, col_crm2 = st.columns(2)
         with col_crm1:
-            fig_crm1 = go.Figure(go.Scatter(x=crm_df['CAC'], y=crm_df['Revenue_Per_Customer'], mode='markers+text', text=crm_df['Branch_ID'], textposition='top center', marker=dict(size=crm_df['Avg_Monthly_Customers'] / 50, color=crm_df['LTV_CAC_Ratio'], colorscale='Turbo', showscale=True, colorbar=dict(title="LTV/CAC"))))
+            fig_crm1 = go.Figure(go.Scatter(x=crm_df['CAC'], y=crm_df['Revenue_Per_Customer'], mode='markers+text', text=crm_df['Branch_ID'], textposition='top center', marker=dict(size=crm_df['Avg_Monthly_Customers'] / 50, color=crm_df['Rev_CAC_Ratio'], colorscale='Turbo', showscale=True, colorbar=dict(title="Rev/CAC"))))
             fig_crm1.update_layout(title="Customer Acquisition Cost vs Revenue per Customer", xaxis_title="CAC ($)", yaxis_title="Revenue per Customer ($)")
             fig_crm1 = apply_theme_to_fig(fig_crm1)
             st.plotly_chart(fig_crm1, use_container_width=True)
@@ -437,7 +534,7 @@ elif nav_selection == "CRM Analysis":
             st.plotly_chart(fig_crm2, use_container_width=True)
             
         best_cac = crm_df.loc[crm_df['CAC'].idxmin()]
-        best_ltv = crm_df.loc[crm_df['LTV_CAC_Ratio'].idxmax()]
+        best_ltv = crm_df.loc[crm_df['Rev_CAC_Ratio'].idxmax()]
         
         st.markdown(f"""
         <div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow};'>
@@ -445,11 +542,12 @@ elif nav_selection == "CRM Analysis":
             <ul>
                 <li><b>Cabang Paling Efisien Akuisisi Customer:</b> 
                 <b>{best_cac['Branch_ID']}</b> dengan CAC terendah sebesar <b>${best_cac['CAC']:.2f}/pelanggan</b>.</li>
-                <li><b>Cabang dengan LTV/CAC Ratio Terbaik:</b>
-                <b>{best_ltv['Branch_ID']}</b> mencapai rasio <b>{best_ltv['LTV_CAC_Ratio']:.2f}x</b>.</li>
+                <li><b>Cabang dengan Rev/CAC Ratio Terbaik:</b>
+                <b>{best_ltv['Branch_ID']}</b> mencapai rasio <b>{best_ltv['Rev_CAC_Ratio']:.2f}x</b>.</li>
                 <li><b>Implikasi Investasi:</b> 
                 Kombinasi CAC rendah dan Revenue/Customer tinggi menjadi indikator ekspansi yang lebih solid daripada sekadar volume penjualan historis.</li>
             </ul>
+            <p style='font-size: 13px; color: {muted_color}; margin-top: 10px; margin-bottom: 0;'>Catatan: Rev/CAC adalah proxy Revenue per Customer dibagi CAC. LTV sesungguhnya membutuhkan data retensi yang tidak tersedia dalam dataset ini.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -471,7 +569,7 @@ elif nav_selection == "Technical Documentation":
 
     st.markdown(f"<div style='background-color: {card_color}; padding: 25px; border-radius: 8px; border: 1px solid {border_color}; box-shadow: {card_shadow};'>", unsafe_allow_html=True)
     st.markdown("### SPK Consensus: TOPSIS vs MOORA")
-    spk_weights = np.array([0.25, 0.25, 0.25, 0.25])
+    spk_weights = st.session_state.get('spk_weights', np.array([0.45, 0.25, 0.15, 0.15]))
     spk_results = calculate_spk(df_filtered, spk_weights)
     if not spk_results.empty:
         comparison_df = spk_results[['Branch_ID', 'TOPSIS_Score', 'TOPSIS_Rank', 'MOORA_Score', 'MOORA_Rank']].copy()
