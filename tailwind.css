@@ -1,0 +1,83 @@
+/* tailwind.css - Tailadmin Sales Dashboard Theme Replication */
+@import url('https://fonts.googleapis.com/css2?family=Satoshi:wght@400;500;600;700&display=swap');
+
+/* Tailadmin Light/Dark Variables */
+:root {
+    --tail-bg-light: #F1F5F9;
+    --tail-card-light: #FFFFFF;
+    --tail-text-main-light: #1C2434;
+    --tail-text-muted-light: #64748B;
+    --tail-border-light: #E2E8F0;
+    
+    --tail-bg-dark: #1A222C;
+    --tail-card-dark: #24303F;
+    --tail-text-main-dark: #FFFFFF;
+    --tail-text-muted-dark: #AEB7C0;
+    --tail-border-dark: #313D4A;
+    
+    --tail-accent: #3C50E0; /* Tailadmin Primary Blue */
+    --kfc-accent: #E4002B; /* KFC Red for brand preservation */
+}
+
+/* Base styling overrides for Streamlit to match Tailadmin */
+.stApp {
+    font-family: 'Satoshi', sans-serif !important;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: 'Satoshi', sans-serif !important;
+    font-weight: 700 !important;
+}
+
+/* Bento Grid Metric Cards - Tailadmin Style */
+.metric-card {
+    padding: 24px;
+    border-radius: 8px; /* Tailadmin uses smaller radius, usually 8px or 12px */
+    text-align: left;
+    margin-bottom: 24px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+/* Remove the top gradient bar from previous design, Tailadmin cards are clean */
+.metric-card::before {
+    display: none;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+}
+
+.metric-value {
+    font-size: 28px !important;
+    font-weight: 700 !important;
+    margin-top: 12px !important;
+    margin-bottom: 4px !important;
+    line-height: 1.1 !important;
+}
+
+.metric-label {
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    text-transform: none !important; /* Tailadmin usually doesn't uppercase labels */
+    letter-spacing: normal !important;
+}
+
+/* Adjust Streamlit specific elements */
+hr {
+    margin: 2rem 0;
+}
+
+.stSelectbox label, .stSlider label {
+    font-weight: 500 !important;
+    font-size: 14px !important;
+}
+
+/* Hide Streamlit top bar for cleaner look */
+header[data-testid="stHeader"] {
+    background: transparent !important;
+}
